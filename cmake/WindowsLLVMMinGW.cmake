@@ -1,0 +1,10 @@
+set(CMAKE_SYSTEM_NAME Windows)
+
+find_program(CMAKE_C_COMPILER ${mingw_target}-clang REQUIRED)
+find_program(CMAKE_RC_COMPILER ${mingw_target}-windres REQUIRED)
+get_filename_component(toolchain_bin "${CMAKE_C_COMPILER}" DIRECTORY)
+set(CMAKE_FIND_ROOT_PATH "${toolchain_bin}/../${mingw_target}")
+set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
+set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
+set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
+set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)

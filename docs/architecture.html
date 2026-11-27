@@ -1,0 +1,668 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="An illustrated guide to the SchNES emulator core, native execution, graphics, audio, media, and SDL presentation.">
+<title>SchNES Architecture</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0c131b;
+    --panel: #121e29;
+    --diagram: #101b25;
+    --node: #182938;
+    --connector: #a1bacc;
+    --line: #2c4152;
+    --text: #edf4fa;
+    --muted: #afc1cf;
+    --cpu: #7bc8ff;
+    --ppu: #ffba84;
+    --apu: #c5adff;
+    --io: #78dfbc;
+    --event: #ffd978;
+  }
+
+  * { box-sizing: border-box; }
+  html { scroll-padding-top: 1rem; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 1rem/1.65 system-ui, sans-serif;
+  }
+  a { color: var(--cpu); text-underline-offset: .18em; }
+  a:hover { color: #c0e4ff; }
+  :focus-visible { outline: 2px solid var(--event); outline-offset: .25rem; }
+  .skip { position: absolute; inset: .75rem auto auto .75rem; transform: translateY(-160%); }
+  .skip:focus { transform: none; z-index: 2; background: var(--panel); padding: .4rem .8rem; }
+  .layout {
+    display: grid;
+    grid-template-columns: 12rem minmax(0, 64rem);
+    gap: clamp(1.5rem, 3vw, 3.5rem);
+    max-width: 86rem;
+    margin: auto;
+    padding: clamp(1.25rem, 3vw, 3rem);
+  }
+  .sidebar { align-self: start; position: sticky; top: 2rem; }
+  .sidebar > a { font-weight: 750; letter-spacing: .04em; color: var(--text); text-decoration: none; }
+  .sidebar ol { padding: 0; margin: 1.1rem 0 0; list-style: none; }
+  .sidebar li { border-left: 1px solid var(--line); }
+  .sidebar li a { display: block; padding: .35rem .8rem; font-size: .91rem; text-decoration: none; color: var(--muted); }
+  .sidebar li a:hover, .sidebar li a:focus-visible { color: var(--text); background: var(--panel); }
+  main { min-width: 0; }
+  h1, h2, h3 { line-height: 1.16; text-wrap: balance; }
+  h1 { margin: 0 0 .85rem; font-size: clamp(2.6rem, 6.2vw, 5.2rem); letter-spacing: -.055em; }
+  h2 { margin: 0 0 .8rem; font-size: clamp(1.55rem, 3.4vw, 2.2rem); letter-spacing: -.03em; }
+  h3 { margin: 1.55rem 0 .55rem; font-size: 1.15rem; }
+  p, ul { margin: .65rem 0; }
+  .hero { padding: 1.2rem 0 2.05rem; }
+  section { border-top: 1px solid var(--line); padding: 2rem 0 2.65rem; }
+  .legend { display: flex; flex-wrap: wrap; gap: .55rem 1.25rem; margin: 1.25rem 0 0; padding: 0; list-style: none; font-size: .86rem; }
+  .legend li { display: flex; align-items: center; gap: .48rem; }
+  .legend li::before { content: ""; width: .64rem; height: .64rem; border-radius: .15rem; background: var(--swatch); }
+  .cpu { --swatch: var(--cpu); }
+  .ppu { --swatch: var(--ppu); }
+  .apu { --swatch: var(--apu); }
+  .io { --swatch: var(--io); }
+  .event { --swatch: var(--event); }
+  figure {
+    margin: 1.25rem 0;
+    background: var(--diagram);
+    border: 1px solid var(--line);
+    border-radius: .85rem;
+    overflow: hidden;
+  }
+  .diagram { overflow-x: auto; padding: .4rem .55rem; }
+  .diagram:focus-visible { outline-offset: -.25rem; }
+  .diagram svg { display: block; width: 100%; height: auto; min-width: 800px; }
+  .diagram-note { display: none; margin: 0; padding: .5rem .9rem 0; color: var(--muted); font-size: .84rem; }
+  figcaption { border-top: 1px solid var(--line); padding: .65rem 1rem .75rem; color: var(--muted); font-size: .88rem; }
+  svg text { fill: var(--text); font-family: system-ui, sans-serif; font-size: 15px; }
+  svg .label { font-weight: 700; font-size: 17px; }
+  svg .sub { fill: var(--muted); font-size: 14px; }
+  svg .accent { fill: var(--swatch); }
+  svg .wire, svg .flow { fill: none; stroke: var(--swatch, var(--connector)); stroke-width: 1.8; stroke-linejoin: round; }
+  svg .dashed { stroke-dasharray: 5 5; }
+  svg .box { fill: var(--node); stroke: var(--swatch, var(--connector)); stroke-width: 1.25; rx: 8; }
+  svg .outer { fill: var(--panel); stroke: var(--line); stroke-width: 1.25; rx: 12; }
+  svg .guide { fill: none; stroke: #708697; stroke-width: 1; stroke-dasharray: 4 5; }
+  svg .bar { fill: var(--swatch); fill-opacity: .20; stroke: var(--swatch); stroke-width: 1.25; rx: 4; }
+  svg .neutral { --swatch: var(--connector); }
+  svg .arrow { fill: var(--connector); }
+  svg .mark { fill: var(--swatch); }
+  table { width: 100%; border-collapse: collapse; font-size: .92rem; text-align: left; }
+  .table-scroll { overflow-x: auto; margin: 1rem 0; }
+  th, td { padding: .56rem .72rem; vertical-align: top; border-bottom: 1px solid var(--line); }
+  th { background: var(--panel); font-weight: 680; }
+  td:first-child, th:first-child { white-space: nowrap; }
+  .map { table-layout: fixed; }
+  .map col:first-child { width: 28%; }
+  .map th, .map td { padding: .65rem clamp(.42rem, 1.3vw, .9rem); border-bottom: 1px solid var(--line); }
+  .map th { white-space: normal; }
+  .map tbody th { background: transparent; font-weight: 500; }
+  .map td { border-left: 1px solid var(--line); vertical-align: middle; background: var(--panel); }
+  .map .shared { color: var(--muted); }
+  .map .address { font-variant-numeric: tabular-nums; color: var(--text); font-size: .9em; white-space: normal; }
+  code, pre { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .89em; }
+  code { color: #c6e5ff; }
+  pre {
+    margin: .75rem 0;
+    padding: .8rem 1rem;
+    overflow: auto;
+    line-height: 1.6;
+    background: #0b141e;
+    border: 1px solid var(--line);
+    border-radius: .55rem;
+  }
+  details { padding: .65rem .9rem; margin: 1rem 0; border: 1px solid var(--line); border-radius: .55rem; }
+  summary { cursor: pointer; font-weight: 700; color: var(--event); }
+  .refs { font-size: .88rem; color: var(--muted); overflow-wrap: anywhere; }
+  @media (max-width: 1120px) {
+    .layout { display: block; }
+    .sidebar { position: static; padding: 0 0 1rem; border-bottom: 1px solid var(--line); }
+    .sidebar ol { display: flex; gap: .15rem .85rem; flex-wrap: wrap; margin-top: .4rem; }
+    .sidebar li { border: 0; }
+    .sidebar li a { padding: .17rem 0; }
+  }
+  @media screen and (max-width: 865px) {
+    .diagram-note { display: block; }
+  }
+  @media screen and (max-width: 500px) {
+    .map col:first-child { width: 33%; }
+    .map { font-size: .85rem; }
+  }
+  @media print {
+    :root { color-scheme: light; --bg: white; --diagram: white; --panel: #eef4f8; --line: #9aaab4; --text: #14202a; --muted: #344958; --cpu: #005789; --ppu: #8f3b09; --apu: #603096; --io: #006649; --event: #815504; }
+    .layout { display: block; padding: 0; }
+    .sidebar, .skip { display: none; }
+    pre, svg .outer, svg .box { background: white; fill: white; }
+    code { color: #005789; }
+    figure, pre { break-inside: avoid; }
+    .diagram svg { min-width: 0 !important; }
+  }
+</style>
+</head>
+<body>
+<a class="skip" href="#architecture">Skip to architecture</a>
+<div class="layout">
+  <nav class="sidebar" aria-label="Contents">
+    <a href="#architecture">SchNES Architecture</a>
+    <ol>
+      <li><a href="#introduction">Introduction</a></li>
+      <li><a href="#machine">Machine and frame</a></li>
+      <li><a href="#deadlines">Bus deadlines</a></li>
+      <li><a href="#cpu">CPU and recompiler</a></li>
+      <li><a href="#ppu">Graphics and raster</a></li>
+      <li><a href="#audio">Audio and DMC</a></li>
+      <li><a href="#media">Cartridges and disks</a></li>
+      <li><a href="#presentation">Input and runahead</a></li>
+      <li><a href="#diagnostics">Diagnostics and builds</a></li>
+    </ol>
+  </nav>
+
+  <main id="architecture">
+    <header class="hero">
+      <h1>SchNES Architecture</h1>
+    </header>
+
+    <section id="introduction">
+      <h2>Introduction</h2>
+      <p>SchNES emulates the NTSC Nintendo Entertainment System and the Famicom Disk System. Its core runs 6502 instructions in batches between hardware deadlines. When an interrupt, DMA transfer, or timing-sensitive register access requires attention, the core advances the affected devices to the relevant cycle.</p>
+      <p>This timing model connects the ARM64 recompiler, scanline renderer, and fixed-point audio mixer. Regular and Ultrafast use different rules for when work can be deferred. The SDL frontend handles controller input and presentation, with optional runahead to show the effect of fresh input sooner.</p>
+    </section>
+
+    <section id="machine">
+      <h2>Machine state and the frame boundary</h2>
+      <p>The C core keeps CPU, PPU, APU, controller, bus timing, and cartridge or disk state in a <code>Nes</code> instance. The SDL frontend loads media, supplies controller state on demand, advances the machine, and presents its output. The headless driver uses the same core frame entry point.</p>
+
+      <ul class="legend" aria-label="Diagram color key">
+        <li class="cpu">CPU and execution</li>
+        <li class="ppu">PPU and video</li>
+        <li class="apu">APU and audio</li>
+        <li class="io">Host and media</li>
+        <li class="event">Timing and handoffs</li>
+      </ul>
+
+      <figure>
+        <p class="diagram-note" aria-hidden="true">Scroll horizontally to see the full diagram.</p>
+        <div class="diagram" tabindex="0" role="group" aria-label="Scrollable machine architecture diagram">
+          <svg viewBox="0 0 900 333" role="img" aria-labelledby="machine-title machine-desc">
+            <title id="machine-title">One frame through the host and emulated machine</title>
+            <desc id="machine-desc">The host supplies latched controller input and calls nes_frame. The scheduler runs the CPU and routes timed interactions to the PPU, APU, and media. The host receives a completed framebuffer and PCM samples.</desc>
+            <defs><marker id="ma" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path class="arrow" d="M0 0 8 4 0 8Z"/></marker></defs>
+            <rect class="outer" x="190" y="20" width="516" height="291"/>
+            <text class="label" x="211" y="49">Nes machine</text>
+            <rect class="box io" x="15" y="83" width="140" height="65"/>
+            <text class="label" x="85" y="110" text-anchor="middle">SDL / headless</text>
+            <text class="sub" x="85" y="130" text-anchor="middle">frame request</text>
+            <rect class="box io" x="15" y="220" width="140" height="65"/>
+            <text class="label" x="85" y="247" text-anchor="middle">Controller</text>
+            <text class="sub" x="85" y="267" text-anchor="middle">buttons at latch</text>
+            <rect class="box cpu" x="216" y="83" width="186" height="65"/>
+            <text class="label" x="309" y="110" text-anchor="middle">CPU execution</text>
+            <text class="sub" x="309" y="130" text-anchor="middle">6502 registers and cycles</text>
+            <rect class="box event" x="216" y="220" width="186" height="65"/>
+            <text class="label" x="309" y="247" text-anchor="middle">Bus and scheduler</text>
+            <text class="sub" x="309" y="267" text-anchor="middle">RAM, I/O, IRQ, DMA</text>
+            <rect class="box ppu" x="511" y="60" width="170" height="56"/>
+            <text class="label" x="596" y="84" text-anchor="middle">PPU</text>
+            <text class="sub" x="596" y="103" text-anchor="middle">raster and pixels</text>
+            <rect class="box apu" x="511" y="145" width="170" height="56"/>
+            <text class="label" x="596" y="169" text-anchor="middle">APU</text>
+            <text class="sub" x="596" y="188" text-anchor="middle">channels and mixer</text>
+            <rect class="box io" x="511" y="230" width="170" height="56"/>
+            <text class="label" x="596" y="254" text-anchor="middle">Cartridge / FDS</text>
+            <text class="sub" x="596" y="273" text-anchor="middle">banks, IRQs, expansion</text>
+            <rect class="box ppu" x="747" y="60" width="137" height="56"/>
+            <text class="label" x="815.5" y="84" text-anchor="middle">Framebuffer</text>
+            <text class="sub" x="815.5" y="103" text-anchor="middle">256 × 240</text>
+            <rect class="box apu" x="747" y="145" width="137" height="56"/>
+            <text class="label" x="815.5" y="169" text-anchor="middle">PCM buffer</text>
+            <text class="sub" x="815.5" y="188" text-anchor="middle">48 kHz mono</text>
+            <path class="flow io" marker-end="url(#ma)" d="M155 115H214"/>
+            <path class="flow io" marker-end="url(#ma)" d="M155 252H214"/>
+            <path class="flow" marker-end="url(#ma)" d="M298 148V218"/>
+            <path class="flow event" marker-end="url(#ma)" d="M320 220V150"/>
+            <text class="sub" x="336" y="180">I/O and</text>
+            <text class="sub" x="336" y="200">events</text>
+            <path class="wire" d="M402 252H455 M455 88V258"/>
+            <path class="flow ppu" marker-end="url(#ma)" d="M455 88H509"/>
+            <path class="flow apu" marker-end="url(#ma)" d="M455 173H509"/>
+            <path class="flow io" marker-end="url(#ma)" d="M455 258H509"/>
+            <path class="flow ppu" marker-end="url(#ma)" d="M681 88H745"/>
+            <path class="flow apu" marker-end="url(#ma)" d="M681 173H745"/>
+          </svg>
+        </div>
+        <figcaption><code>nes_frame()</code> advances the live machine to a new PPU frame. The frame wrapper brings the devices up to the CPU cycle when necessary and finishes expansion audio.</figcaption>
+      </figure>
+
+      <p>The PPU counts the new frame at vblank. Video and audio are buffered in the core, so host texture upload, cropping, audio queueing, and display pacing live outside CPU execution.</p>
+      <p class="refs">Source files <a href="../src/nes.h"><code>nes.h</code></a>, <a href="../src/machine.c"><code>machine.c</code></a>, <a href="../src/main.c"><code>main.c</code></a></p>
+    </section>
+
+    <section id="deadlines">
+      <h2>How devices share time</h2>
+      <p>CPU cycles form the scheduler’s timeline. The PPU advances three dots per CPU cycle in the emulated clock domain. The audio sample clock maps elapsed APU time to 48 kHz output. The bus stores a deadline for when the CPU fast path must reconsider its next action.</p>
+
+      <figure>
+        <p class="diagram-note" aria-hidden="true">Scroll horizontally to see the full diagram.</p>
+        <div class="diagram" tabindex="0" role="group" aria-label="Scrollable deadline timeline">
+          <svg viewBox="0 0 900 318" role="img" aria-labelledby="time-title time-desc">
+            <title id="time-title">CPU batching with separate raster and bus deadlines</title>
+            <desc id="time-desc">A conceptual timeline shows a batch continuing past a raster-only event, with a timed PPU write able to request an earlier sync. A CPU-visible event ends the batch, after which the bus recalculates the next deadline and CPU execution resumes.</desc>
+            <defs><marker id="ta" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path class="arrow" d="M0 0 8 4 0 8Z"/></marker></defs>
+            <text class="label cpu accent" x="24" y="74">CPU</text>
+            <text class="label ppu accent" x="24" y="156">Raster</text>
+            <text class="label event accent" x="24" y="233">Bus</text>
+            <rect class="bar cpu" x="134" y="47" width="378" height="42"/>
+            <text class="label" x="323" y="74" text-anchor="middle">Direct, loop-batched or native</text>
+            <rect class="bar event" x="518" y="47" width="118" height="42"/>
+            <text class="label" x="577" y="74" text-anchor="middle">Handoff</text>
+            <rect class="bar cpu" x="642" y="47" width="234" height="42"/>
+            <text class="label" x="759" y="74" text-anchor="middle">Next CPU batch</text>
+            <path class="guide" d="M309 89V150"/>
+            <path class="wire ppu" d="M134 150H569 M585 150H876"/>
+            <circle class="mark ppu" cx="309" cy="150" r="5"/>
+            <text class="label" x="328" y="137">Raster-only event</text>
+            <text class="sub" x="328" y="176">CPU batch can continue.</text>
+            <path class="wire event" d="M134 227H876"/>
+            <path class="flow event" marker-end="url(#ta)" d="M577 227V91"/>
+            <circle class="mark event" cx="577" cy="227" r="5"/>
+            <text class="label" x="596" y="214">CPU-visible deadline</text>
+            <text class="sub" x="596" y="252">Service event and recalculate.</text>
+            <path class="flow" marker-end="url(#ta)" d="M134 279H876"/>
+            <text class="sub" x="134" y="301">Emulated time</text>
+            <text class="sub" x="876" y="301" text-anchor="end">Schematic timing</text>
+          </svg>
+        </div>
+        <figcaption>Scanline drawing can catch up later. A CPU-visible event, such as an NMI transition, mapper IRQ, or timed DMC fetch, limits a batch. I/O and writes with timing or mapping effects can also force a handoff.</figcaption>
+      </figure>
+
+      <p>The core distinguishes the next PPU event from the next PPU event that can affect the CPU. Write classifiers tell the dispatcher and recompiler which registers can change the raster, IRQ line, deadline, PRG mapping, audio, or cached code. The bus handler applies writes that require the shared timed path. Pending OAM DMA and controller strobe transitions can narrow the fast-path window to one cycle.</p>
+
+      <details>
+        <summary>Example &nbsp; A scroll change at a HUD split</summary>
+        <p>In a typical split-screen routine, the CPU reads <code>$2002</code> until a status bit changes, then writes scroll or address registers. The CPU-visible status read must reflect the relevant PPU dot. The subsequent write can change how future pixels are drawn, so the PPU applies it at its effective time. Completed work before the split can remain cached when its inputs still match.</p>
+      </details>
+      <p class="refs">Source files <a href="../src/machine.c"><code>machine.c</code></a>, <a href="../src/write_effects.h"><code>write_effects.h</code></a>, <a href="../src/ppu_writes.h"><code>ppu_writes.h</code></a>, <a href="../src/mapper_writes.h"><code>mapper_writes.h</code></a></p>
+    </section>
+
+    <section id="cpu">
+      <h2>CPU execution and native traces</h2>
+      <p>SchNES uses several ways to execute 6502 instructions. Within a safe window, the core can dispatch directly, batch recognized loops, or enter an ARM64 trace. Near a boundary it can step timing-sensitive instructions individually. An instruction started in the fast dispatcher can finish through the shared bus handler.</p>
+      <div class="table-scroll">
+        <table aria-label="CPU execution paths">
+          <thead><tr><th scope="col">Path</th><th scope="col">What it does</th><th scope="col">Typical use</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">Recompiled</th><td>Executes generated ARM64 code, including supported native links.</td><td>Repeated code in a supported ROM or RAM region.</td></tr>
+            <tr><th scope="row">Loop-Batched</th><td>Accounts for multiple recognized loop iterations within a safe window. Some native loops are reported here.</td><td>Countdowns, polling, and eligible CHR RAM uploads.</td></tr>
+            <tr><th scope="row">Direct</th><td>Executes instructions with fast, deadline-aware dispatch.</td><td>Code that can run between device events.</td></tr>
+            <tr><th scope="row">Individual</th><td>Uses the timing interpreter for individual instructions.</td><td>Execution near a hardware deadline.</td></tr>
+            <tr><th scope="row">Bus Handler</th><td>Completes an instruction from the fast dispatcher through timed bus access.</td><td>A register access that changes timing or mapping.</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <figure>
+        <p class="diagram-note" aria-hidden="true">Scroll horizontally to see the full diagram.</p>
+        <div class="diagram" tabindex="0" role="group" aria-label="Scrollable native trace lifecycle diagram">
+          <svg viewBox="0 0 900 331" role="img" aria-labelledby="jit-title jit-desc">
+            <title id="jit-title">Native trace lookup, execution, and retirement</title>
+            <desc id="jit-desc">A program counter and code identity lead to trace lookup. An eligible hit enters native code. A repeated miss can compile subject to budget. The dispatcher handles fallback and native exits. Cache maintenance retires segments and writable-code changes invalidate affected traces.</desc>
+            <defs><marker id="ja" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path class="arrow" d="M0 0 8 4 0 8Z"/></marker></defs>
+            <rect class="box cpu" x="24" y="38" width="172" height="67"/>
+            <text class="label" x="110" y="65" text-anchor="middle">Trace lookup</text>
+            <text class="sub" x="110" y="87" text-anchor="middle">PC and code identity</text>
+            <rect class="box cpu" x="254" y="38" width="181" height="67"/>
+            <text class="label" x="344.5" y="65" text-anchor="middle">Entry checks</text>
+            <text class="sub" x="344.5" y="87" text-anchor="middle">mapping, guards, budget</text>
+            <rect class="box cpu" x="492" y="38" width="181" height="67"/>
+            <text class="label" x="582.5" y="65" text-anchor="middle">Native execution</text>
+            <text class="sub" x="582.5" y="87" text-anchor="middle">may link to another trace</text>
+            <rect class="box event" x="731" y="38" width="145" height="67"/>
+            <text class="label" x="803.5" y="65" text-anchor="middle">Native exit</text>
+            <text class="sub" x="803.5" y="87" text-anchor="middle">PC, cycles, bus work</text>
+            <path class="flow" marker-end="url(#ja)" d="M196 71H252"/>
+            <path class="flow" marker-end="url(#ja)" d="M435 71H490"/>
+            <path class="flow" marker-end="url(#ja)" d="M673 71H729"/>
+            <rect class="box cpu" x="24" y="169" width="172" height="67"/>
+            <text class="label" x="110" y="196" text-anchor="middle">Compile when hot</text>
+            <text class="sub" x="110" y="218" text-anchor="middle">within frame budget</text>
+            <path class="flow" marker-end="url(#ja)" d="M110 105V167"/>
+            <text class="sub" x="123" y="143">Cache miss</text>
+            <path class="flow dashed" marker-end="url(#ja)" d="M62 169V107"/>
+            <rect class="box event" x="254" y="169" width="622" height="67"/>
+            <text class="label" x="565" y="196" text-anchor="middle">Return to dispatcher</text>
+            <text class="sub" x="565" y="218" text-anchor="middle">Run direct or batched, step near a deadline, or service the bus.</text>
+            <path class="flow" marker-end="url(#ja)" d="M344 105V167"/>
+            <path class="flow" marker-end="url(#ja)" d="M803 105V167"/>
+            <text class="sub" x="358" y="143">Entry unavailable</text>
+            <path class="flow dashed" marker-end="url(#ja)" d="M196 202H252"/>
+            <rect class="outer" x="24" y="260" width="852" height="48"/>
+            <text class="sub" x="450" y="289" text-anchor="middle">Cache maintenance retires arena segments and invalidates traces after changes to compiled bytes.</text>
+          </svg>
+        </div>
+        <figcaption>The single-tier JIT emits ARM64 for hot code on supported Apple silicon and Windows ARM64 builds. The current 2 MiB code arena has four segments. ROM traces are capped at 56 emulated cycles in Regular and 96 in Ultrafast, with separate bounds for RAM code.</figcaption>
+      </figure>
+
+      <details>
+        <summary>Example &nbsp; Four accumulator shifts shrink from 32 to 12 bytes</summary>
+        <p><strong>Original 6502 code.</strong> Four one-byte instructions shift the accumulator four bits to the right.</p>
+<pre><code>lsr a
+lsr a
+lsr a
+lsr a</code></pre>
+        <p><strong>ARM64 emitted one shift at a time.</strong> This two-instruction sequence repeats four times. <code>w4</code> holds the guest accumulator and <code>w16</code> holds the pending carry.</p>
+<pre><code>ubfx w16, w4, #0, #1    // Save the bit shifted out
+ubfx w4,  w4, #1, #7    // Shift the 8-bit accumulator right</code></pre>
+        <p><strong>Optimized ARM64.</strong> Each shift overwrites carry. The fourth shift’s carry is bit 3 of the original accumulator, so the recompiler extracts it once and shifts the accumulator by four in one instruction.</p>
+<pre><code>ubfx w13, w4, #3, #1    // Extract the final carry from the original value
+mov  w16, w13
+ubfx w4,  w4, #4, #4    // Keep the original upper nibble</code></pre>
+        <p>For example, <code>$B8</code> becomes <code>$0B</code> with carry set. The trace still accounts for four guest instructions and eight emulated CPU cycles. It derives the final negative and zero flags from the result. The 32- and 12-byte counts cover the native shift body.</p>
+        <p class="refs"><a href="../src/cpu_aarch64.inc#L1804"><code>emit_shift_run()</code> in the ARM64 emitter</a></p>
+      </details>
+
+      <details>
+        <summary>Example &nbsp; A five-cycle countdown iteration</summary>
+<pre><code>        LDX #$04
+loop:   DEX          ; 2 cycles
+        BNE loop     ; 3 taken / 2 not taken on the same page</code></pre>
+        <p>The four iterations after <code>LDX</code> take 19 cycles and finish with <code>X=0</code> and the zero flag set. A recognized loop can batch iterations while the available cycle budget covers them. The dispatcher can resume with the remaining iterations when a device event falls inside the full loop.</p>
+      </details>
+
+      <p>Interpreter mode disables native compilation and still uses direct dispatch and loop batching. Regular and Ultrafast also fall back to interpreter execution when native code is unavailable.</p>
+      <p class="refs">Source files <a href="../src/cpu.c"><code>cpu.c</code></a>, <a href="../src/cpu_frame.inc"><code>cpu_frame.inc</code></a>, <a href="../src/cpu_aarch64.inc"><code>cpu_aarch64.inc</code></a></p>
+    </section>
+
+    <section id="ppu">
+      <h2>PPU events, scanlines, and pixels</h2>
+      <p>The PPU tracks a 341-dot scanline and a nominal 262-line NTSC frame. The visible picture occupies 256 × 240 pixels. The core advances to events such as status changes, scroll reloads, and mapper IRQ clocks. Rendering can group consecutive elapsed scanlines when their inputs allow it.</p>
+
+      <figure>
+        <p class="diagram-note" aria-hidden="true">Scroll horizontally to see the full diagram.</p>
+        <div class="diagram" tabindex="0" role="group" aria-label="Scrollable PPU graphics pipeline">
+          <svg viewBox="0 0 900 301" role="img" aria-labelledby="ppu-title ppu-desc">
+            <title id="ppu-title">Raster scheduling and pixel composition</title>
+            <desc id="ppu-desc">Timing and writes select a rendering region or an individual line. Nametable, attribute and CHR data feed cached background rows. OAM and CHR feed sprite rows. A compositor resolves priority, transparency and palette, then writes the framebuffer.</desc>
+            <defs><marker id="pa" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path class="arrow" d="M0 0 8 4 0 8Z"/></marker></defs>
+            <rect class="box event" x="18" y="23" width="226" height="56"/>
+            <text class="label" x="131" y="47" text-anchor="middle">PPU timing and writes</text>
+            <text class="sub" x="131" y="66" text-anchor="middle">scanline, dot, scroll, mask, banks</text>
+            <rect class="box event" x="291" y="23" width="230" height="56"/>
+            <text class="label" x="406" y="47" text-anchor="middle">Choose rendering span</text>
+            <text class="sub" x="406" y="66" text-anchor="middle">region, line, or partial redraw</text>
+            <path class="flow event" marker-end="url(#pa)" d="M244 51H289"/>
+            <path class="flow event" marker-end="url(#pa)" d="M521 51H644V160"/>
+
+            <rect class="box ppu" x="18" y="130" width="226" height="57"/>
+            <text class="label" x="131" y="154" text-anchor="middle">Nametable + CHR</text>
+            <text class="sub" x="131" y="174" text-anchor="middle">tiles, attributes, pattern bits</text>
+            <rect class="box ppu" x="18" y="218" width="226" height="57"/>
+            <text class="label" x="131" y="242" text-anchor="middle">OAM + CHR</text>
+            <text class="sub" x="131" y="262" text-anchor="middle">sprite selection and patterns</text>
+            <rect class="box ppu" x="291" y="130" width="190" height="57"/>
+            <text class="label" x="386" y="154" text-anchor="middle">Background rows</text>
+            <text class="sub" x="386" y="174" text-anchor="middle">decoded tiles, row cache</text>
+            <rect class="box ppu" x="291" y="218" width="190" height="57"/>
+            <text class="label" x="386" y="242" text-anchor="middle">Sprite rows</text>
+            <text class="sub" x="386" y="262" text-anchor="middle">pixels, priority, sprite 0</text>
+            <rect class="box ppu" x="548" y="162" width="193" height="79"/>
+            <text class="label" x="644.5" y="190" text-anchor="middle">Composite</text>
+            <text class="sub" x="644.5" y="210" text-anchor="middle">transparency and priority</text>
+            <text class="sub" x="644.5" y="227" text-anchor="middle">palette and emphasis</text>
+            <rect class="box ppu" x="773" y="162" width="111" height="79"/>
+            <text class="label" x="828.5" y="191" text-anchor="middle">Frame</text>
+            <text class="sub" x="828.5" y="211" text-anchor="middle">256 × 240</text>
+            <path class="flow ppu" marker-end="url(#pa)" d="M244 158H289"/>
+            <path class="flow ppu" marker-end="url(#pa)" d="M244 246H289"/>
+            <path class="flow ppu" marker-end="url(#pa)" d="M481 158H511V185H546"/>
+            <path class="flow ppu" marker-end="url(#pa)" d="M481 246H511V219H546"/>
+            <path class="flow ppu" marker-end="url(#pa)" d="M741 202H771"/>
+          </svg>
+        </div>
+        <figcaption>A region is a group of consecutive scanlines handled together. A section in the raster overlay can be a region, a single line, or an extra redraw. Cache hits count as work in that overlay.</figcaption>
+      </figure>
+
+      <p>Incremental caches retain decoded CHR rows and rendered row data. Cache checks include scroll, mapped CHR identity, and relevant memory revisions. Writes to scroll, palette, nametables, CHR banking, or sprite configuration can change which rows remain reusable. Sprite-0 overlap also feeds the PPU status register, so the core can resolve that timing when code polls <code>$2002</code>.</p>
+      <p>Regular and Interpreter retain NES palette and emphasis information until conversion for display. Ultrafast writes RGB565 directly and can defer eligible raster updates. Mid-scanline effects are modeled with targeted timing and rendering approximations.</p>
+
+      <figure>
+        <p class="diagram-note" aria-hidden="true">Scroll horizontally to see the full diagram.</p>
+        <div class="diagram" tabindex="0" role="group" aria-label="Scrollable split-screen rendering schematic">
+          <svg viewBox="0 0 900 300" role="img" aria-labelledby="split-title split-desc">
+            <title id="split-title">A scrolling playfield with a stationary HUD</title>
+            <desc id="split-desc">The top of a schematic frame uses one scroll state for a scrolling playfield. A timed write at the split changes the scroll state used by the HUD below. A change during a visible line can require that some pixels be redrawn.</desc>
+            <defs>
+              <pattern id="tile" width="18" height="18" patternUnits="userSpaceOnUse">
+                <path d="M0 0H18V18" fill="none" stroke="#b77e55" stroke-opacity=".35"/>
+              </pattern>
+            </defs>
+            <rect class="outer" x="24" y="37" width="249" height="236"/>
+            <rect class="bar ppu" x="40" y="53" width="217" height="112"/>
+            <rect x="41" y="54" width="215" height="110" fill="url(#tile)"/>
+            <rect class="outer" x="78" y="92" width="141" height="36"/>
+            <text class="label" x="148.5" y="116" text-anchor="middle">Playfield</text>
+            <rect class="bar neutral" x="40" y="165" width="217" height="92"/>
+            <text class="label" x="148.5" y="218" text-anchor="middle">HUD</text>
+            <path class="wire ppu" d="M257 87H319"/>
+            <path class="wire event" d="M40 165H319"/>
+            <path class="wire neutral" d="M257 243H319"/>
+            <circle class="mark event" cx="257" cy="165" r="4"/>
+            <rect class="box ppu" x="319" y="56" width="557" height="62"/>
+            <text class="label" x="338" y="81">Region above the split</text>
+            <text class="sub" x="338" y="103">Playfield scroll follows the camera.</text>
+            <rect class="box event" x="319" y="134" width="557" height="62"/>
+            <text class="label" x="338" y="159">Timed scroll or address change</text>
+            <text class="sub" x="338" y="181">A write during a visible line can require a partial redraw.</text>
+            <rect class="box neutral" x="319" y="212" width="557" height="62"/>
+            <text class="label" x="338" y="237">Region below the split</text>
+            <text class="sub" x="338" y="259">HUD scroll stays fixed as the world moves.</text>
+          </svg>
+        </div>
+        <figcaption>Illustrative split-screen layout. Each side can be rendered with its own scroll state when its lines qualify for batching.</figcaption>
+      </figure>
+      <p class="refs">Source files <a href="../src/ppu.c"><code>ppu.c</code></a>, <a href="../src/ppu_writes.h"><code>ppu_writes.h</code></a></p>
+    </section>
+
+    <section id="audio">
+      <h2>Audio generation and DMC fetches</h2>
+      <p>The base APU generates two pulse channels, triangle, noise, and DMC. All modes use fixed-point mixing at 48 kHz. Channel levels feed separate nonlinear lookup tables for the pulse pair and for triangle, noise, and DMC. The mixer applies filtering and converts the result to signed 16-bit PCM. Short-period waveforms can use averaging to reduce aliasing, with filtering choices that depend on the mode and active channels.</p>
+
+      <figure>
+        <p class="diagram-note" aria-hidden="true">Scroll horizontally to see the full diagram.</p>
+        <div class="diagram" tabindex="0" role="group" aria-label="Scrollable audio pipeline and DMC timing diagram">
+          <svg viewBox="0 0 900 304" role="img" aria-labelledby="audio-title audio-desc">
+            <title id="audio-title">Fixed-point audio pipeline and DMC fetch paths</title>
+            <desc id="audio-desc">Timed DMA and eligible Ultrafast streaming provide sample bytes to DMC. The pulse and TND tables feed base APU filtering. The base APU and expansion mixes meet at PCM output, which is then queued for SDL playback.</desc>
+            <defs><marker id="aa" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path class="arrow" d="M0 0 7 3.5 0 7Z"/></marker></defs>
+            <rect class="box event" x="24" y="112" width="190" height="66"/>
+            <text class="label" x="119" y="139" text-anchor="middle">Timed DMC fetch</text>
+            <text class="sub" x="119" y="161" text-anchor="middle">CPU-bus DMA and stalls</text>
+            <rect class="box event" x="24" y="212" width="190" height="66"/>
+            <text class="label" x="119" y="239" text-anchor="middle">Ultrafast DMC stream</text>
+            <text class="sub" x="119" y="261" text-anchor="middle">eligible PRG or BIOS reads</text>
+
+            <rect class="box apu" x="268" y="28" width="172" height="66"/>
+            <text class="label" x="354" y="55" text-anchor="middle">Pulse DAC table</text>
+            <text class="sub" x="354" y="77" text-anchor="middle">pulse 1 + pulse 2</text>
+            <rect class="box apu" x="268" y="112" width="172" height="66"/>
+            <text class="label" x="354" y="139" text-anchor="middle">TND DAC table</text>
+            <text class="sub" x="354" y="161" text-anchor="middle">triangle, noise, DMC</text>
+            <path class="flow event" marker-end="url(#aa)" d="M214 142H266"/>
+            <path class="flow event dashed" marker-end="url(#aa)" d="M214 245H239V164H266"/>
+
+            <rect class="box apu" x="494" y="69" width="166" height="66"/>
+            <text class="label" x="577" y="96" text-anchor="middle">Base APU filtering</text>
+            <text class="sub" x="577" y="118" text-anchor="middle">DC and low-pass</text>
+            <path class="wire apu" d="M440 61H467V145H440"/>
+            <path class="flow apu" marker-end="url(#aa)" d="M467 102H492"/>
+            <rect class="box apu" x="494" y="212" width="166" height="66"/>
+            <text class="label" x="577" y="239" text-anchor="middle">Expansion audio</text>
+            <text class="sub" x="577" y="261" text-anchor="middle">5B, VRC6, or FDS</text>
+
+            <rect class="box apu" x="711" y="112" width="165" height="66"/>
+            <text class="label" x="793.5" y="139" text-anchor="middle">PCM output</text>
+            <text class="sub" x="793.5" y="161" text-anchor="middle">sum, round, saturate</text>
+            <path class="flow apu" marker-end="url(#aa)" d="M660 102H685V130H709"/>
+            <path class="flow apu" marker-end="url(#aa)" d="M660 245H685V160H709"/>
+            <rect class="box io" x="711" y="212" width="165" height="66"/>
+            <text class="label" x="793.5" y="239" text-anchor="middle">SDL audio queue</text>
+            <text class="sub" x="793.5" y="261" text-anchor="middle">48 kHz, 16-bit mono</text>
+            <path class="flow" marker-end="url(#aa)" d="M793.5 178V210"/>
+          </svg>
+        </div>
+        <figcaption>Timed DMC fetches preserve CPU stalls. Ultrafast can stream bytes from eligible cartridge PRG ROM or the fixed FDS BIOS. Ineligible reads and the final fetch that raises an IRQ go through the timed bus.</figcaption>
+      </figure>
+
+      <h3>No-Lag changes the clock relationship</h3>
+      <p>No-Lag can insert 100 post-render scanlines before vblank. The CPU and PPU clocks are scaled to retain the approximately 60.10 Hz frame cadence, giving the game more CPU cycles per displayed frame. Audio pauses during the added interval to preserve pitch. The NMI-to-picture distance retains its NTSC dot count. CPU-timed mapper IRQs and disk transfers follow the CPU clock.</p>
+
+      <figure>
+        <p class="diagram-note" aria-hidden="true">Scroll horizontally to see the full diagram.</p>
+        <div class="diagram" tabindex="0" role="group" aria-label="Scrollable No-Lag clock comparison">
+          <svg viewBox="0 0 900 300" role="img" aria-labelledby="clock-title clock-desc">
+            <title id="clock-title">NTSC and No-Lag clock domains</title>
+            <desc id="clock-desc">Measured in PPU scanlines, both modes have 240 visible lines, one post-render line, and 21 lines for vblank and pre-render. No-Lag inserts 100 lines before vblank. The CPU keeps running during that interval while the audio clock pauses.</desc>
+            <defs><marker id="ca" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path class="arrow" d="M0 0 7 3.5 0 7Z"/></marker></defs>
+            <rect class="bar neutral" x="626" y="22" width="16" height="16"/>
+            <text class="sub" x="654" y="36">Vblank + pre-render (21 lines)</text>
+            <text class="label" x="24" y="84">NTSC</text>
+            <rect class="bar ppu" x="145" y="56" width="482" height="43"/>
+            <text x="386" y="83" text-anchor="middle">240 picture lines + 1 post-render line</text>
+            <rect class="bar neutral" x="627" y="56" width="42" height="43"/>
+            <text class="sub" x="684" y="83">262 lines</text>
+            <text class="label" x="24" y="148">No-Lag</text>
+            <rect class="bar ppu" x="145" y="120" width="482" height="43"/>
+            <text x="386" y="147" text-anchor="middle">240 picture lines + 1 post-render line</text>
+            <rect class="bar event" x="627" y="120" width="200" height="43"/>
+            <text class="label" x="727" y="147" text-anchor="middle">100 added lines</text>
+            <rect class="bar neutral" x="827" y="120" width="42" height="43"/>
+            <path class="guide" d="M627 165V265 M827 165V265"/>
+            <text class="label cpu accent" x="24" y="198">CPU clock</text>
+            <path class="flow cpu" marker-end="url(#ca)" d="M145 192H869"/>
+            <text class="label apu accent" x="24" y="247">Audio clock</text>
+            <path class="wire apu" d="M145 241H627"/>
+            <path class="wire apu dashed" d="M627 241H827"/>
+            <path class="flow apu" marker-end="url(#ca)" d="M827 241H869"/>
+            <text class="sub apu accent" x="727" y="229" text-anchor="middle">paused</text>
+            <path class="wire" d="M145 267H869 M145 263V272 M627 263V272 M827 263V272 M869 263V272"/>
+            <text class="sub" x="145" y="288">Scanline 0</text>
+            <text class="sub" x="627" y="288" text-anchor="middle">241</text>
+            <text class="sub" x="827" y="288" text-anchor="middle">341</text>
+            <text class="sub" x="869" y="288" text-anchor="middle">362</text>
+          </svg>
+        </div>
+        <figcaption>Widths show emulated scanlines. NTSC and No-Lag retain the same host frame cadence. Ultrafast schedules DMC fetches on the CPU clock and mixes on the paused audio clock. High-rate direct DAC PCM can keep NTSC-length frames.</figcaption>
+      </figure>
+      <p class="refs">Source files <a href="../src/apu.c"><code>apu.c</code></a>, <a href="../src/apu_fixed.h"><code>apu_fixed.h</code></a>, <a href="../src/machine.c"><code>machine.c</code></a>, <a href="../src/sunsoft5b.c"><code>sunsoft5b.c</code></a></p>
+    </section>
+
+    <section id="media">
+      <h2>Cartridges, mappers, and disk I/O</h2>
+      <p>The loader uses the iNES or NES 2.0 header to select a mapper and submapper. A mapper can change the CPU’s PRG windows, the PPU’s CHR and nametable mappings, writable memory access, IRQ scheduling, and expansion audio. FDS uses a BIOS and drive model with writable program RAM, disk transfer registers, automatic side selection, and a disk save alongside the original image.</p>
+
+      <figure>
+        <table class="map" aria-label="Cartridge and FDS CPU address map">
+          <colgroup><col><col><col></colgroup>
+          <thead><tr><th scope="col">CPU address</th><th scope="col">Cartridge</th><th scope="col">FDS</th></tr></thead>
+          <tbody>
+            <tr><th scope="row"><code class="address">$0000–$1FFF</code></th><td class="shared" colspan="2">Internal RAM and mirrors</td></tr>
+            <tr><th scope="row"><code class="address">$2000–$3FFF</code></th><td class="shared" colspan="2">PPU registers and mirrors</td></tr>
+            <tr><th scope="row"><code class="address">$4000–$4017</code></th><td class="shared" colspan="2">APU, OAM DMA, and controllers</td></tr>
+            <tr><th scope="row"><code class="address">$4018–$401F</code></th><td class="shared" colspan="2">Open bus</td></tr>
+            <tr><th scope="row"><code class="address">$4020–$5FFF</code></th><td>Expansion and mapper I/O</td><td>Disk and audio registers</td></tr>
+            <tr><th scope="row"><code class="address">$6000–$7FFF</code></th><td>Optional PRG RAM</td><td rowspan="2">Writable PRG RAM</td></tr>
+            <tr><th scope="row"><code class="address">$8000–$DFFF</code></th><td rowspan="2">Mapper-selected PRG windows</td></tr>
+            <tr><th scope="row"><code class="address">$E000–$FFFF</code></th><td>BIOS ROM</td></tr>
+          </tbody>
+        </table>
+        <figcaption>The mapper defines the contents of cartridge PRG windows. The PPU has a separate address space for patterns, nametables, and palette data.</figcaption>
+      </figure>
+
+      <details>
+        <summary>Example &nbsp; The same PC can point to different code</summary>
+        <p>A mapper register write can replace the PRG bank under <code>$8000</code>. A native trace cached for the previous bank cannot be selected solely by that CPU address. The core uses the mapped code identity for lookup. In FDS program RAM, a write can instead change the bytes in place. Writes to compiled bytes invalidate the affected traces, and runahead isolates writable code and disk state from the live machine.</p>
+      </details>
+
+      <p class="refs">Source files <a href="../src/cartridge.c"><code>cartridge.c</code></a>, <a href="../src/mapper_writes.h"><code>mapper_writes.h</code></a>, <a href="../src/fds.c"><code>fds.c</code></a>, <a href="../README.md#supported-mappers">supported mapper list</a></p>
+    </section>
+
+    <section id="presentation">
+      <h2>Input, runahead, and display</h2>
+      <p>NES games choose when to latch their controllers. SDL supplies fresh button state through a callback when the emulated game latches input. Subsequent serial reads consume the latched bits. In the interactive loop, SchNES submits the live frame’s audio before any display wait and starts runahead close to the intended presentation time.</p>
+
+      <figure>
+        <p class="diagram-note" aria-hidden="true">Scroll horizontally to see the full diagram.</p>
+        <div class="diagram" tabindex="0" role="group" aria-label="Scrollable runahead and presentation diagram">
+          <svg viewBox="0 0 900 292" role="img" aria-labelledby="run-title run-desc">
+            <title id="run-title">Committed and speculative frame paths</title>
+            <desc id="run-desc">The live machine runs frame N and queues its audio. Its state also seeds a one- or two-frame prediction for the next presentation. The next live iteration advances from the committed state of frame N.</desc>
+            <defs><marker id="ra" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path class="arrow" d="M0 0 7 3.5 0 7Z"/></marker></defs>
+            <text class="label cpu accent" x="24" y="71">Live state</text>
+            <text class="label apu accent" x="24" y="153">Audio</text>
+            <text class="label event accent" x="24" y="235">Prediction</text>
+
+            <rect class="box cpu" x="144" y="32" width="170" height="66"/>
+            <text class="label" x="229" y="59" text-anchor="middle">Emulate frame N</text>
+            <text class="sub" x="229" y="81" text-anchor="middle">sample input at latch</text>
+            <rect class="box cpu" x="360" y="32" width="170" height="66"/>
+            <text class="label" x="445" y="59" text-anchor="middle">Commit frame N</text>
+            <text class="sub" x="445" y="81" text-anchor="middle">live state and PCM</text>
+            <rect class="box cpu" x="706" y="32" width="170" height="66"/>
+            <text class="label" x="791" y="59" text-anchor="middle">Run frame N + 1</text>
+            <text class="sub" x="791" y="81" text-anchor="middle">from live state</text>
+            <path class="flow cpu" marker-end="url(#ra)" d="M314 65H358"/>
+            <path class="flow cpu" marker-end="url(#ra)" d="M530 65H704"/>
+            <text class="sub" x="617" y="53" text-anchor="middle">next live iteration</text>
+
+            <rect class="box apu" x="546" y="114" width="170" height="66"/>
+            <text class="label" x="631" y="141" text-anchor="middle">Queue live audio</text>
+            <text class="sub" x="631" y="163" text-anchor="middle">before presentation</text>
+            <path class="flow apu" marker-end="url(#ra)" d="M492 98V147H544"/>
+
+            <rect class="box event" x="360" y="196" width="220" height="66"/>
+            <text class="label" x="470" y="223" text-anchor="middle">Run 1 or 2 frames</text>
+            <text class="sub" x="470" y="245" text-anchor="middle">on a copy of frame N</text>
+            <rect class="box ppu" x="706" y="196" width="170" height="66"/>
+            <text class="label" x="791" y="223" text-anchor="middle">Present video</text>
+            <text class="sub" x="791" y="245" text-anchor="middle">from the prediction</text>
+            <path class="flow event dashed" marker-end="url(#ra)" d="M414 98V194"/>
+            <text class="sub" x="400" y="157" text-anchor="end">copy live state</text>
+            <path class="flow ppu" marker-end="url(#ra)" d="M580 229H704"/>
+          </svg>
+        </div>
+        <figcaption>With runahead disabled, the displayed frame comes from the live machine. With one or two frames of runahead, the displayed frame comes from the prediction while audio and persistent state come from the live machine.</figcaption>
+      </figure>
+
+      <p>The prediction copies mutable state and can reuse compatible cached data. A two-frame prediction holds its first controller sample for the second speculative frame. The application can skip a presentation to catch up, and bypasses runahead in fast-forward and CPU raster view. It counts committed emulation frames and visible gameplay presentations separately.</p>
+      <p class="refs">Source files <a href="../src/main.c"><code>main.c</code></a>, <a href="../src/machine.c"><code>machine.c</code></a>, <a href="../src/runahead.c"><code>runahead.c</code></a></p>
+    </section>
+
+    <section id="diagnostics">
+      <h2>Modes, instrumentation, and builds</h2>
+      <div class="table-scroll">
+        <table aria-label="Emulation mode differences">
+          <thead><tr><th scope="col">Mode</th><th scope="col">CPU execution</th><th scope="col">Video and audio</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">Regular</th><td>Native traces where supported, direct execution, loop batching, and timed fallback.</td><td>Palette and emphasis retained until display. Timed DMC stalls.</td></tr>
+            <tr><th scope="row">Ultrafast</th><td>Native traces with a larger ROM cycle budget and additional eligible event batching.</td><td>RGB565 output, eligible raster deferral, and eligible DMC streaming.</td></tr>
+            <tr><th scope="row">Interpreter</th><td>Direct execution, loop batching, and timed execution without native compilation.</td><td>Palette and emphasis retained until display. Timed DMC stalls.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <ul>
+        <li><strong>Info overlay.</strong> Emulation FPS measures committed frames. Display FPS counts new gameplay frames presented to a visible window.</li>
+        <li><strong>CPU overlay.</strong> Reports the execution paths the core used, including native links and loop batches.</li>
+        <li><strong>Raster statistics.</strong> Report regions, single lines, redraws, PPU and APU sync calls, and full bus deadline recalculations. A sync can process multiple events.</li>
+        <li><strong>CPU raster debugger.</strong> Projects observed CPU execution spans onto PPU dots, including blanking, with categories for DMA, interrupts, and idle time.</li>
+      </ul>
+      <p>The headless path renders full-size frames and generates audio without display pacing. Replay-and-hash tools check core changes against recorded inputs and a baseline. Timing tools can compare throughput and frame-time tails on those same inputs. Release publishing builds the lean static SDL application and uses profile-guided optimization where configured. That host build optimization is separate from the runtime 6502 recompiler.</p>
+<pre><code>./build/SchNES --headless 3000 game.nes</code></pre>
+      <p class="refs">Source files <a href="../README.md#statistics-overlay">statistics overlay</a>, <a href="../scripts/README.md">replay and publishing tools</a>, <a href="../CMakeLists.txt"><code>CMakeLists.txt</code></a>, <a href="../scripts/publish.py"><code>publish.py</code></a></p>
+    </section>
+  </main>
+</div>
+</body>
+</html>

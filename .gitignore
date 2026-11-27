@@ -1,0 +1,11 @@
+/build*/
+.DS_Store
+*.nes
+*.sav
+*.sav.tmp-*
+/bin/
+/tests/
+/nes-write-fuzz/
+__pycache__/
+*.fds
+*.rom
